@@ -83,6 +83,21 @@ uint8_t MAC_array[6];
 char MAC_char[18];
 String macadresse="";
 
+String printbefehl="";
+bool isgettingprint=false;
+
+//---------------printer------------------------
+//int rasterlength=0;
+//int rasterheight=0;
+#define spalten (97+29) //motorpulse=15*8+6   max.15 Zeichen breit
+#define zeilen 8            //8xreedrelaypulse oder 4x wegen&hinher ?
+#define rasterength (spalten*zeilen) //of byte ->bit0=N1 bit1=N2 bit2=N3 bit3=N4 
+              // ->1008byte (126byte pro pixelzeile)
+byte rasterarray[rasterength];       //fester Puffer
+
+#define zeichenprozeile 15  //
+
+
 
 //---------------helper--------------------------
 //format bytes
@@ -215,10 +230,17 @@ void setup() {
   //pinMode(pin_N4, OUTPUT);
   //pinMode(pin_Motor, OUTPUT);
 
-  //Power ON:
+ //Power ON:
   setLED(true);  //LED on
   setMotor(false);
   setNadeln(false,false,false,false);
+
+ //rasterinit
+//  rasterarray = (int*)malloc((rasterength)*(sizeof(byte)));
+  for (int i=0;i<rasterength;i++) {
+    rasterarray[i] = 0;
+  }
+
 
   //OTA
   OTA.onMessage([](char *message, int line) {
@@ -244,7 +266,9 @@ void setup() {
   server.onNotFound(handleNotFound);//Datei oder 404
 
   server.begin();
-  Serial.println("HTTP server started");
+  Serial.print("HTTP server started HOSTNAME:");
+  Serial.println(ARDUINO_HOSTNAME);
+  
   Serial.println("ready.");
 
   //NTP start
@@ -320,8 +344,12 @@ void loop() {
       }
   }
 
+  //printer
+  if(!isgettingprint){
+    //check
+    if(printbefehl!=""){drucken();}
+  }
 }
-
 
 //------------Data IO--------------------
 
@@ -550,8 +578,23 @@ void handleAction() {//Rueckgabe JSON
       if (server.arg(i) == "LEDON")  AktionBefehl = 3;
       if (server.arg(i) == "LEDOFF")  AktionBefehl = 4;
     }
-    
-    
+
+    if (server.argName(i) == "print") {
+        message += " ,\"printermsg\": \"";
+        if(printbefehl==""){
+            isgettingprint=true;
+            printbefehl=server.arg(i);
+            isgettingprint=false;
+            message += "ok";
+          }
+          else
+          {
+             message += "notfree";
+          }
+          message += "\"";
+    }
+
+  
     if (server.argName(i) == "getpin"){
        message += " ,\"val\": \"";
        if(digitalRead( server.arg(i).toInt())==HIGH)
@@ -709,4 +752,83 @@ uint8_t handleAktion(uint8_t befehl, uint8_t key) {
   }
   return re;
 }
+
+//------------Drucken--------------------
+int printpos=0;
+int printstatus=0;
+
+ 
+
+void drucken(){
+   int i;
+   char c;//char byte
+   
+   //printbefehl
+   if(printstatus==0){
+      //printbefehl -> rastern
+
+      //rasterinit, alles leeren
+      for(i=0;i<rasterength;i++) {
+        rasterarray[i] = 0;
+      }
+
+      //text-zeichen rastern
+      int anzahlzeichen=printbefehl.length();
+      Serial.print("Anzahl:");
+      Serial.println(anzahlzeichen);
+     // Serial.println(printbefehl.getBytes());
+      
+      for(i=0;i<anzahlzeichen;i++) {//=Xpos
+        c=printbefehl[i];//umlaute 2 byte!, Ä:[195],132 oder 3 byte €:[226],130,172
+        Serial.print(c,DEC);
+        if(c==195 || c==194){
+          //zeichentab16 
+          i++;
+          c=printbefehl[i];
+          Serial.print(",");
+          Serial.print(c,DEC);
+        }
+        else
+        if(c==226){
+          //zeichentab24
+          Serial.print(",");
+          i++;
+          c=printbefehl[i];
+          Serial.print(c,DEC);
+          Serial.print(",");
+           i++;
+          c=printbefehl[i];
+          Serial.print(c,DEC);
+         
+        }
+        else{
+          //zeichentab8
+          Serial.print(" ");
+          Serial.print(char(c));
+         }
+        
+         Serial.println("");
+      }
+ Serial.println(printbefehl);
+
+       Serial.println("*");
+      printstatus=1;
+      return;
+   } 
+ 
+   if(printstatus==1){
+   //raster abfahren (rzeile{loop|rzeile|...)
+      
+      printstatus=2;
+      return;
+   }
+
+   if(printstatus==2){
+    //wenn raster-printing zuende, rintbefehl freimachen
+     printbefehl="";
+     printstatus=0;
+   }
+}
+
+
 

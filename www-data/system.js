@@ -259,6 +259,15 @@ var SysFunc=function(){
 			if(iftimr!=undefined)clearTimeout(iftimr);
 			lokdat.innerHTML="";			
 			node=cE(lokdat,"p");
+			
+			if(jdat.error!=undefined){
+				console.log("Fehler",typeof jdat,jdat);
+				iftimr=setTimeout(function(){
+					getpostData(dateisysinfo,retlokaldata);
+				},1000*20);//20sec
+				return;
+			}
+			
 			var t=jdat.lokalzeit.split(":");
 			node.innerHTML="lokaltime: "+t[0]+':'+t[1];
 			
@@ -275,19 +284,6 @@ var SysFunc=function(){
 			
 			node=cE(lokdat,"p");
 			node.innerHTML="MAC: <span style=\"text-transform: uppercase;\">"+jdat.macadresse+"</span>";
-			
-			if(jdat.power!=undefined){
-				node=cE(lokdat,"p");
-				node.innerHTML="Active Power (W):"+jdat.power.activepower;
-				node=cE(lokdat,"p");
-				node.innerHTML="Voltage (V):"+jdat.power.voltage;
-				node=cE(lokdat,"p");
-				node.innerHTML="Current (A):"+jdat.power.current;
-				node=cE(lokdat,"p");
-				node.innerHTML="Apparent Power (VA):"+jdat.power.apparentpower;
-				node=cE(lokdat,"p");
-				node.innerHTML="Power Factor (%):"+jdat.power.powerfactor;
-			}
 			
 			
 			setstat(jdat);
