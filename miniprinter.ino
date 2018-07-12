@@ -89,13 +89,13 @@ bool isgettingprint=false;
 //---------------printer------------------------
 //int rasterlength=0;
 //int rasterheight=0;
-#define spalten (97+29) //motorpulse=15*8+6   max.15 Zeichen breit
+#define spalten (97+29) //motorpulse für 4 Nadeln ->8x8px²> 126*4/8=63 Zeichen/Zeile
 #define zeilen 8            //8xreedrelaypulse oder 4x wegen&hinher ?
 #define rasterength (spalten*zeilen) //of byte ->bit0=N1 bit1=N2 bit2=N3 bit3=N4 
               // ->1008byte (126byte pro pixelzeile)
 byte rasterarray[rasterength];       //fester Puffer
 
-#define zeichenprozeile 15  //
+#define zeichenprozeile spalten*4/8  //4 Nadels, Zeichen=8 Pixel breit
 
 
 
@@ -756,32 +756,199 @@ uint8_t handleAktion(uint8_t befehl, uint8_t key) {
 //------------Drucken--------------------
 int printpos=0;
 int printstatus=0;
+byte bytedata[]={0,0,0,0,0,0,0,0};
+int posX=0;
 
- 
+ //atoi
+bool getMatrix(byte b1){//setzt zum Zeichen passende Matrix
+   int i,t;
+   int count=sizeof(zeichentab8);// 1.byte=kennung, dann 8byte daten
+   for(i=0;i<count;i+=9){
+     if(zeichentab8[i]==b1){
+        for(t=0;t<8;t++){
+          bytedata[t]=zeichentab8[i+1+t];
+        }
+        return true;
+      }
+   }
+   return false;
+}
+
+void clearmatrix(){
+  int i;
+  for(i=0;i<rasterength;i++) {//(97+29)*8Pixelzeilen
+        rasterarray[i] = 0;
+  }
+  posX=0;
+}
+
+
+int getNadel(int x){
+  //126=N1 +126=N2 +126=N3 +126=N4
+  if(x<spalten)  return 0;//  0..125 Nadel 1
+  if(x<spalten*2)return 1;//126..251 Nadel 2
+  if(x<spalten*3)return 2;//252..377 Nadel 3
+  if(x<spalten*4)return 3;//378..503 Nadel 4
+  return 0;
+}
+
+byte getNadelBit(int x){
+  if(x<spalten)  return 1;//  0..125 Nadel 1
+  if(x<spalten*2)return 2;//126..251 Nadel 2
+  if(x<spalten*3)return 4;//252..377 Nadel 3
+  if(x<spalten*4)return 8;//378..503 Nadel 4
+  return 0;
+}
+
+void setBitinMatrix(int x,int y){
+   //setzen
+   int nadel=getNadel(x);
+   int xx=x-(spalten*nadel);          //126=N1 +126=N2 +126=N3 +126=N4
+   int yy=spalten*y;
+   byte oldval=rasterarray[xx+yy];
+   byte nadelbit=getNadelBit(x);
+
+   rasterarray[xx+yy]=oldval | nadelbit;//setze Bit
+   
+  
+   Serial.print("matrixpos y=");
+   Serial.print(y);
+   Serial.print(" x=");
+   Serial.print(xx);
+   Serial.print(" N=");
+   Serial.print(nadel);
+   Serial.print(" [");
+   Serial.print(xx+yy);
+   Serial.print("]=");
+   Serial.println(rasterarray[xx+yy],BIN);
+
+}
+
+void addbitsToraster(){
+   //bytedata->rasterarray
+     /*   Druckerzeile ist in 4 Nadeln aufgeteilt, 8x8=63 Zeichen/Zeile
+    1byte=[N1,N2,N3,N4,x,x,x,x] px1 
+          [N1,N2,N3,N4,x,x,x,x] px2
+          [N1,N2,N3,N4,x,x,x,x] px3
+          [N1,N2,N3,N4,x,x,x,x] px4
+          [N1,N2,N3,N4,x,x,x,x] px5
+          [N1,N2,N3,N4,x,x,x,x] px6
+          [N1,N2,N3,N4,x,x,x,x] px7
+          [N1,N2,N3,N4,x,x,x,x] px8
+          [........]
+          *(97+29) *8 Pixelzeilen     126*8
+
+         N1*(97+29), N2*(97+29), N3*(97+29), N4*(97+29)
+
+          {........,->pixel char Zeilenweise
+           ..**....,
+           **..**..,
+           **..**..,
+           ******..,
+           **..**..,
+           **..**..,
+           ........] 
+          
+      */
+   int px;//zeichen 8x8
+   byte muster;
+   byte bitcounter;
+   for(int z=0;z<8;z++){//=Y
+       muster=bytedata[z];
+       for(bitcounter=1;bitcounter<9;bitcounter++){
+            if(muster & (1<< bitcounter)){setBitinMatrix(posX,z);}
+            posX++;
+       }
+     /*  if(muster & (1<< 1)){setBitinMatrix(posX,z);}
+       posX++;
+       if(muster & (1<< 2)){setBitinMatrix(posX,z);}
+       posX++;
+       if(muster & (1<< 3)){setBitinMatrix(posX,z);}
+       posX++;
+       if(muster & (1<< 4)){setBitinMatrix(posX,z);}
+       posX++;
+       if(muster & (1<< 5)){setBitinMatrix(posX,z);}
+       posX++;
+       if(muster & (1<< 6)){setBitinMatrix(posX,z);}
+       posX++;
+       if(muster & (1<< 7)){setBitinMatrix(posX,z);}
+       posX++;
+       if(muster & (1<< 8)){setBitinMatrix(posX,z);}
+       posX++;
+*/
+       posX-=8;
+   }
+   posX+=8;//zeichen 8 Pixel breit ->X für nächstes Zeichen 8 Pixel rüberrücken
+   
+}
 
 void drucken(){
    int i;
    char c;//char byte
-   
+    
    //printbefehl
    if(printstatus==0){
       //printbefehl -> rastern
 
-      //rasterinit, alles leeren
-      for(i=0;i<rasterength;i++) {
-        rasterarray[i] = 0;
-      }
-
+      //rasterinit, alles leeren, auf x=0 gehen
+      clearmatrix(); //(97+29)*8Pixelzeilen
+ 
       //text-zeichen rastern
       int anzahlzeichen=printbefehl.length();
       Serial.print("Anzahl:");
       Serial.println(anzahlzeichen);
      // Serial.println(printbefehl.getBytes());
-      
+
       for(i=0;i<anzahlzeichen;i++) {//=Xpos
         c=printbefehl[i];//umlaute 2 byte!, Ä:[195],132 oder 3 byte €:[226],130,172
         Serial.print(c,DEC);
-        if(c==195 || c==194){
+        
+        if(c<128 ){ // Standard ASCII-set 0..0x7F handling  
+          Serial.print("=");
+          Serial.print(char(c));
+
+          if(getMatrix(c)){
+                Serial.println("");
+               //bytedata auf rasterarray übertragen
+                addbitsToraster();
+             }
+             else
+               Serial.print("-");//ignorieren (evtl. 13=CR)
+             
+          
+        } 
+        else
+        if(c==194 || c==195){//0xC2 0xC3
+           i++;
+           c=printbefehl[i];
+            Serial.print(",");
+            Serial.print(c,DEC);
+        }
+        else
+        if(c==226){//0xE2
+           Serial.print(",");
+           i++;
+           c=printbefehl[i];
+           Serial.print(c,DEC);
+           Serial.print(",");
+           i++;
+           c=printbefehl[i];
+           Serial.print(c,DEC);
+         }
+         else{
+          Serial.print(" out of range");
+         }
+      /*
+          http://playground.arduino.cc/Main/Utf8ascii
+          codes 0..127 are identical in ASCII and UTF8
+          codes 128-159
+          codes 160-191 2 byte, 0xC2 first byte second byte is identical to the extended ASCII
+          codes 192-255 2 byte, 0xC3 first byte, the second byte differs only in the first two bits
+      */
+
+
+        
+       /* if(c==195 || c==194){
           //zeichentab16 
           i++;
           c=printbefehl[i];
@@ -801,11 +968,7 @@ void drucken(){
           Serial.print(c,DEC);
          
         }
-        else{
-          //zeichentab8
-          Serial.print(" ");
-          Serial.print(char(c));
-         }
+       */
         
          Serial.println("");
       }
