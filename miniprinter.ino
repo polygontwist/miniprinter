@@ -28,13 +28,13 @@ wenn linke Kante: Papier+1 ~0.5mm
 const char* progversion  = "WLan-Printer V0.1";//ota fs ntp ti getpin 
 #define ARDUINO_HOSTNAME  "wlanprinter"
 
-#define pin_P1 0    //Motorpuls
-#define pin_P2 0    //Reedrelaypuls
-#define pin_N1 0
-#define pin_N2 0
-#define pin_N3 0
-#define pin_N4 0
-#define pin_Motor 0
+#define pin_P1 5    //Motorpuls
+#define pin_P2 4    //Reedrelaypuls
+#define pin_N1 14
+#define pin_N2 12
+#define pin_N3 13
+#define pin_N4 15
+#define pin_Motor 3
 
 #define pin_Button 0          //Button Flash  
 #define pin_buttoninvert true  
@@ -83,21 +83,22 @@ uint8_t MAC_array[6];
 char MAC_char[18];
 String macadresse="";
 
+
+//---------------printer------------------------
 String printbefehl="";
 bool isgettingprint=false;
 
-//---------------printer------------------------
 //int rasterlength=0;
 //int rasterheight=0;
 #define spalten (97+29) //motorpulse für 4 Nadeln ->8x8px²> 126*4/8=63 Zeichen/Zeile
+#define anzahlnadeln 4
 #define zeilen 8            //8xreedrelaypulse oder 4x wegen&hinher ?
 #define rasterength (spalten*zeilen) //of byte ->bit0=N1 bit1=N2 bit2=N3 bit3=N4 
               // ->1008byte (126byte pro pixelzeile)
 byte rasterarray[rasterength];       //fester Puffer
 
 #define zeichenprozeile spalten*4/8  //4 Nadels, Zeichen=8 Pixel breit
-
-
+bool isreturn=false;
 
 //---------------helper--------------------------
 //format bytes
@@ -112,6 +113,8 @@ String formatBytes(size_t bytes) {
     return String(bytes / 1024.0 / 1024.0 / 1024.0) + "GB";
   }
 }
+
+
 
 //----------------basics------------------------
 void setLED(bool an){
@@ -774,6 +777,34 @@ bool getMatrix(byte b1){//setzt zum Zeichen passende Matrix
    return false;
 }
 
+bool getMatrix(byte b1, byte b2){//setzt zum Zeichen passende Matrix
+   int i,t;
+   int count=sizeof(zeichentab16);// 1.byte & 2.byte=kennung, dann 8byte daten
+   for(i=0;i<count;i+=10){
+     if(zeichentab16[i]==b1 && zeichentab16[i+1]==b2){
+        for(t=0;t<8;t++){
+          bytedata[t]=zeichentab16[i+2+t];
+        }
+        return true;
+      }
+   }
+   return false;
+}
+
+bool getMatrix(byte b1, byte b2, byte b3){//setzt zum Zeichen passende Matrix
+   int i,t;
+   int count=sizeof(zeichentab24);// 1.byte & 2.byte & 3.byte=kennung, dann 8byte daten
+   for(i=0;i<count;i+=11){
+     if(zeichentab24[i]==b1 && zeichentab24[i+1]==b2 && zeichentab24[i+2]==b3){
+        for(t=0;t<8;t++){
+          bytedata[t]=zeichentab24[i+3+t];
+        }
+        return true;
+      }
+   }
+   return false;
+}
+
 void clearmatrix(){
   int i;
   for(i=0;i<rasterength;i++) {//(97+29)*8Pixelzeilen
@@ -783,7 +814,7 @@ void clearmatrix(){
 }
 
 
-int getNadel(int x){
+int getNadel(int x){//in: x pos Pixel globalmatrix 
   //126=N1 +126=N2 +126=N3 +126=N4
   if(x<spalten)  return 0;//  0..125 Nadel 1
   if(x<spalten*2)return 1;//126..251 Nadel 2
@@ -792,7 +823,7 @@ int getNadel(int x){
   return 0;
 }
 
-byte getNadelBit(int x){
+byte getNadelBit(int x){//in: x pos Pixel globalmatrix 
   if(x<spalten)  return 1;//  0..125 Nadel 1
   if(x<spalten*2)return 2;//126..251 Nadel 2
   if(x<spalten*3)return 4;//252..377 Nadel 3
@@ -811,7 +842,7 @@ void setBitinMatrix(int x,int y){
    rasterarray[xx+yy]=oldval | nadelbit;//setze Bit
    
   
-   Serial.print("matrixpos y=");
+  /* Serial.print("matrixpos y=");
    Serial.print(y);
    Serial.print(" x=");
    Serial.print(xx);
@@ -820,7 +851,7 @@ void setBitinMatrix(int x,int y){
    Serial.print(" [");
    Serial.print(xx+yy);
    Serial.print("]=");
-   Serial.println(rasterarray[xx+yy],BIN);
+   Serial.println(rasterarray[xx+yy],BIN);*/
 
 }
 
@@ -855,40 +886,88 @@ void addbitsToraster(){
    byte bitcounter;
    for(int z=0;z<8;z++){//=Y
        muster=bytedata[z];
-       for(bitcounter=1;bitcounter<9;bitcounter++){
+       for(bitcounter=0;bitcounter<8;bitcounter++){
             if(muster & (1<< bitcounter)){setBitinMatrix(posX,z);}
             posX++;
        }
-     /*  if(muster & (1<< 1)){setBitinMatrix(posX,z);}
-       posX++;
-       if(muster & (1<< 2)){setBitinMatrix(posX,z);}
-       posX++;
-       if(muster & (1<< 3)){setBitinMatrix(posX,z);}
-       posX++;
-       if(muster & (1<< 4)){setBitinMatrix(posX,z);}
-       posX++;
-       if(muster & (1<< 5)){setBitinMatrix(posX,z);}
-       posX++;
-       if(muster & (1<< 6)){setBitinMatrix(posX,z);}
-       posX++;
-       if(muster & (1<< 7)){setBitinMatrix(posX,z);}
-       posX++;
-       if(muster & (1<< 8)){setBitinMatrix(posX,z);}
-       posX++;
-*/
+    
        posX-=8;
    }
    posX+=8;//zeichen 8 Pixel breit ->X für nächstes Zeichen 8 Pixel rüberrücken
-   
+   if(posX>63*8){
+     posX=0; //y+8
+   }
 }
+
+void initprinter(){
+  setMotor(true);
+  //while(!getP2() ) delay(1);//suche Reedrelaypuls LOW
+  //while( getP2() && getP1() ) delay(1);//dann bis Reedrelay HI & 1.Motorpuls
+  setMotor(false);
+  delay(5);//ms
+}
+
+
+void printmatrix(){//Zeitkritisch wegen motor+pulse p1 p2
+  int i;
+  byte b;
+  int poscounter=0;
+  byte stat=0;
+  bool isN1;
+  bool isN2;
+  bool isN3;
+  bool isN4;
+/*
+  motor     ||97|||29|=126
+  reedrelay ------____|----------____|-----
+
+  18 Motorumdrehungen für einmal hin und her
+  -pro umdrehungen 7 Pulse
+*/
+
+  int counterbis=rasterength;
+  counterbis=(97+29);//debug eine zeile
+  
+  for(i=0;i<counterbis;i++) {//(97+29)*8Pixelzeilen
+     /* Serial.print(i);
+      Serial.print(" ");
+      Serial.println(b,BIN);*/
+      
+      b=rasterarray[i];     //erste Zeile
+      isN1=(b & (1<< 0));//N1
+      isN2=(b & (1<< 1));//N2
+      isN3=(b & (1<< 2));//N3
+      isN4=(b & (1<< 3));//N4
+      setNadeln(isN1,isN2,isN3,isN4);
+      delay(5);//ms  delayMicroseconds(us)
+      setNadeln(false,false,false,false);
+      delay(5);//ms
+
+      setMotor(true);//an
+      //while( getP1() ) delay(1);//bis  Motorpuls low
+       
+      //while(!getP1() )delay(1);{//bis  Motorpuls hi    ->jitter ->zeit?
+        
+      setMotor(false);//stopp
+      delay(5);//ms
+  }
+    
+}
+
+
+//http://wlanprinter.wg/action?print=%20%20%20%20A%0DB%0DCDEF
 
 void drucken(){
    int i;
    char c;//char byte
+   char c2;//char byte
+   char c3;//char byte
     
    //printbefehl
    if(printstatus==0){
       //printbefehl -> rastern
+
+      initprinter();//oder nur wenn reeboot->sonst eine Zeile verloren
 
       //rasterinit, alles leeren, auf x=0 gehen
       clearmatrix(); //(97+29)*8Pixelzeilen
@@ -896,44 +975,72 @@ void drucken(){
       //text-zeichen rastern
       int anzahlzeichen=printbefehl.length();
       Serial.print("Anzahl:");
-      Serial.println(anzahlzeichen);
+      Serial.print(anzahlzeichen);
      // Serial.println(printbefehl.getBytes());
-
+      if(anzahlzeichen>63){
+        anzahlzeichen=63;//max 63Zeichen pro Zeile
+        Serial.print("!");
+      }
+      Serial.println("");
+      isreturn=false;
       for(i=0;i<anzahlzeichen;i++) {//=Xpos
         c=printbefehl[i];//umlaute 2 byte!, Ä:[195],132 oder 3 byte €:[226],130,172
         Serial.print(c,DEC);
-        
-        if(c<128 ){ // Standard ASCII-set 0..0x7F handling  
-          Serial.print("=");
+
+        if(c<32){
+          //6 ACK
+          //7 BEL
+          //9 TAB
+          
+          if(c==13){//return
+            Serial.println(" CR");
+            printbefehl=printbefehl.substring(i+1);
+            isreturn=true;
+            printstatus=1;
+            return;
+          }          
+        }
+        else
+        if(c<128 && c>31 ){ // Standard ASCII-set 0..0x7F handling  
+          Serial.print("(8)=");
           Serial.print(char(c));
 
-          if(getMatrix(c)){
-                Serial.println("");
-               //bytedata auf rasterarray übertragen
-                addbitsToraster();
-             }
-             else
-               Serial.print("-");//ignorieren (evtl. 13=CR)
-             
+
+          if(c>31){
+            if(getMatrix(c)){
+                  //Serial.println("");
+                  //bytedata auf rasterarray übertragen
+                  addbitsToraster();
+               }
+              else  Serial.print(" not defined");
+             //  else  Serial.print("-");//ignorieren (evtl. 13=CR)
+          } 
           
         } 
         else
         if(c==194 || c==195){//0xC2 0xC3
            i++;
-           c=printbefehl[i];
+           c2=printbefehl[i];
             Serial.print(",");
-            Serial.print(c,DEC);
+            Serial.print(c2,DEC);
+
+           if(getMatrix(c,c2)) addbitsToraster();
+            else  Serial.print(" not defined");
         }
         else
         if(c==226){//0xE2
            Serial.print(",");
            i++;
-           c=printbefehl[i];
-           Serial.print(c,DEC);
+           c2=printbefehl[i];
+           Serial.print(c2,DEC);
            Serial.print(",");
            i++;
-           c=printbefehl[i];
-           Serial.print(c,DEC);
+           c3=printbefehl[i];
+           Serial.print(c3,DEC);
+
+           if(getMatrix(c,c2,c3)) addbitsToraster();
+            else  Serial.print(" not defined");
+
          }
          else{
           Serial.print(" out of range");
@@ -946,49 +1053,42 @@ void drucken(){
           codes 192-255 2 byte, 0xC3 first byte, the second byte differs only in the first two bits
       */
 
-
-        
-       /* if(c==195 || c==194){
-          //zeichentab16 
-          i++;
-          c=printbefehl[i];
-          Serial.print(",");
-          Serial.print(c,DEC);
-        }
-        else
-        if(c==226){
-          //zeichentab24
-          Serial.print(",");
-          i++;
-          c=printbefehl[i];
-          Serial.print(c,DEC);
-          Serial.print(",");
-           i++;
-          c=printbefehl[i];
-          Serial.print(c,DEC);
-         
-        }
-       */
-        
          Serial.println("");
       }
- Serial.println(printbefehl);
-
-       Serial.println("*");
+      //
+      
+// Serial.println(printbefehl);
+//Serial.println("*");
       printstatus=1;
       return;
    } 
  
    if(printstatus==1){
    //raster abfahren (rzeile{loop|rzeile|...)
-      
+      Serial.println("Raster abfahren");
+      printmatrix();
       printstatus=2;
       return;
    }
 
    if(printstatus==2){
-    //wenn raster-printing zuende, rintbefehl freimachen
-     printbefehl="";
+       Serial.println("check input>63?");
+      //wenn raster-printing zuende, rintbefehl freimachen 
+      if(printbefehl.length()>63){
+        //die ersten 63 stehen zum drucken bereit, aus String rausnehmen, rest drinlassen
+        printbefehl=printbefehl.substring(63);
+        Serial.print("  rest:");
+        Serial.println(printbefehl);
+      } 
+      else{
+         if(!isreturn){
+            printbefehl="";
+            Serial.println("print ready");
+        }else{
+            Serial.print("  neuezeile:");
+            Serial.println(printbefehl);
+        }
+      }
      printstatus=0;
    }
 }
